@@ -1,0 +1,186 @@
+<script>
+    // ===================================
+    // API CONFIGURATION (БУЛ ЖЕРДИ ӨЗГӨРТҮҮ КЕРЕК!)
+    // ===================================
+    // ЭСКЕРТҮҮ: ExchangeRate-API акысыз деңгээлде иштейт, бирок колдонуучунун
+    // IP дарегинен базалык валюта катары USD гана колдонулат.
+    const API_BASE_URL = "https://api.exchangerate-api.com/v4/latest/USD"; 
+    // Эгер сиз өз API ачкычыңызды алсаңыз, шилтемени ошого алмаштырыңыз.
+
+    // ===================================
+    // КӨП ТИЛДҮҮЛҮК
+    // ===================================
+    const translations = {
+        kg: {
+            pageTitle: "SANFINS | Крипто, Алтын жана Валюта Калькулятору", mainHeading: "Крипто, Алтын & Валюта Алмаштыргыч", warning: "Курстар API аркылуу АКШ долларынын базасында алынды.", amountLabel: "Сумма:", fromLabel: "Баштапкы:", toLabel: "Акыркы:", convertButton: "Эсептөө", resultLabel: "Натыйжа:", errorAmount: "Туура сумманы киргизиңиз.", errorFetch: "Курстарды алууда ката кетти. Кайра аракет кылыңыз."
+        },
+        ru: {
+            pageTitle: "SANFINS | Калькулятор Крипто, Золота и Валют", mainHeading: "Калькулятор Крипто, Золота и Валют", warning: "Курсы получены через API на базе доллара США.", amountLabel: "Сумма:", fromLabel: "Исходная:", toLabel: "Конечная:", convertButton: "Рассчитать", resultLabel: "Результат:", errorAmount: "Введите корректную сумму.", errorFetch: "Ошибка при получении курсов. Попробуйте снова."
+        },
+        en: {
+            pageTitle: "SANFINS | Crypto, Gold and Currency Calculator", mainHeading: "Crypto, Gold & Currency Converter", warning: "Rates retrieved via API based on the US Dollar.", amountLabel: "Amount:", fromLabel: "From:", toLabel: "To:", convertButton: "Calculate", resultLabel: "Result:", errorAmount: "Please enter a valid amount.", errorFetch: "Error retrieving rates. Please try again."
+        }
+    };
+
+    let currentLang = 'kg';
+    let exchangeRates = {}; // API'ден алынган курстарды сактоочу объект
+
+    // ===================================
+    // ВАЛЮТАЛАР (12 АКТИВ) ЖАНА ТИЗМЕК
+    // ===================================
+    // ЭСКЕРТҮҮ: BTC, ETH, XAU, XAG курстары API'де жок болгондуктан, 
+    // биз аларды АКШ долларына карата кол менен киргизебиз (Гибриддик ыкма)
+    const CURRENCIES = [
+        { code: "USD", name_kg: "Доллар", name_ru: "Доллар", name_en: "Dollar" }, { code: "KGS", name_kg: "Сом", name_ru: "Сом", name_en: "Som" }, { code: "RUB", name_kg: "Рубль", name_ru: "Рубль", name_en: "Ruble" }, { code: "EUR", name_kg: "Евро", name_ru: "Евро", name_en: "Euro" }, { code: "KZT", name_kg: "Тенге", name_ru: "Тенге", name_en: "Tenge" }, { code: "CNY", name_kg: "Юань", name_ru: "Юань", name_en: "Yuan" }, { code: "JPY", name_kg: "Йена", name_ru: "Йена", name_en: "Yen" }, { code: "GBP", name_kg: "Фунт", name_ru: "Фунт", name_en: "Pound" }, 
+        // Крипто жана Алтынды кол менен кошуу
+        { code: "BTC", name_kg: "Биткойн", name_ru: "Биткойн", name_en: "Bitcoin" }, { code: "ETH", name_kg: "Эфириум", name_ru: "Эфириум", name_en: "Ethereum" }, { code: "XAU", name_kg: "Алтын (Ounce)", name_ru: "Золото (Унция)", name_en: "Gold (Ounce)" }, { code: "XAG", name_kg: "Күмүш (Ounce)", name_ru: "Серебро (Унция)", name_en: "Silver (Ounce)" }
+    ];
+
+    // Кол менен киргизилген крипто/металл курстары (USD базасында)
+    const MANUAL_RATES = {
+        "BTC": 0.000015, // 1 USD = 0.000015 BTC (фиктивдүү)
+        "ETH": 0.0003,
+        "XAU": 0.00045, 
+        "XAG": 0.035
+    };
+
+    function populateCurrencies() {
+        // ... (Тизмекти толтуруу функциясы мурункудай) ...
+        const fromSelect = document.getElementById('fromCurrency');
+        const toSelect = document.getElementById('toCurrency');
+        const currentFromValue = fromSelect.value;
+        const currentToValue = toSelect.value; 
+
+        fromSelect.innerHTML = '';
+        toSelect.innerHTML = '';
+        
+        CURRENCIES.forEach(currency => {
+            const nameKey = `name_${currentLang}`;
+            const optionText = `${currency.code} (${currency[nameKey]})`;
+            
+            const optionFrom = document.createElement('option');
+            optionFrom.value = currency.code;
+            optionFrom.textContent = optionText;
+            fromSelect.appendChild(optionFrom);
+
+            const optionTo = document.createElement('option');
+            optionTo.value = currency.code;
+            optionTo.textContent = optionText;
+            toSelect.appendChild(optionTo);
+        });
+        
+        fromSelect.value = currentFromValue || 'USD';
+        toSelect.value = currentToValue || 'KGS';
+    }
+
+
+    // ===================================
+    // API ЧАЛУУ ЖАНА КУРСТАРДЫ АЛУУ
+    // ===================================
+    async function fetchRates() {
+        const resultElement = document.getElementById('result');
+        try {
+            const response = await fetch(API_BASE_URL);
+            if (!response.ok) {
+                throw new Error('API жооп берген жок');
+            }
+            const data = await response.json();
+            
+            // API'ден алынган курстарды сактоо
+            exchangeRates = data.rates;
+            
+            // API'ден келбеген активдерди кол менен кошуу
+            exchangeRates = { ...exchangeRates, ...MANUAL_RATES };
+            
+            // Биринчи эсептөөнү жүргүзүү
+            convertCurrency();
+
+        } catch (error) {
+            console.error("Курстарды алууда ката:", error);
+            // Ката болгондо колдонуучуга билдирүү
+            resultElement.textContent = translations[currentLang].errorFetch;
+            // Убактылуу фиктивдүү курстарды колдонуу
+            exchangeRates = { ...MANUAL_RATES, "USD": 1, "KGS": 89, "RUB": 90, "EUR": 0.92, "KZT": 460, "CNY": 7.2, "JPY": 150, "GBP": 0.81 };
+            convertCurrency(); // Кайра эсептөө
+        }
+    }
+
+
+    // ===================================
+    // АЛМАШУУ ЛОГИКАСЫ
+    // ===================================
+    function convertCurrency() {
+        const amount = parseFloat(document.getElementById('amount').value);
+        const fromCurrency = document.getElementById('fromCurrency').value;
+        const toCurrency = document.getElementById('toCurrency').value;
+        const resultElement = document.getElementById('result');
+
+        if (isNaN(amount) || amount <= 0) {
+            resultElement.textContent = translations[currentLang].errorAmount;
+            return;
+        }
+        
+        // Курстардын бар экендигин текшерүү
+        if (!exchangeRates[fromCurrency] || !exchangeRates[toCurrency]) {
+            resultElement.textContent = translations[currentLang].errorFetch;
+            return;
+        }
+
+        // Эсептөө: USD базасында
+        const amountInUSD = amount / exchangeRates[fromCurrency];
+        const convertedAmount = amountInUSD * exchangeRates[toCurrency];
+
+        resultElement.textContent = convertedAmount.toFixed(4) + " " + toCurrency;
+    }
+
+
+    // ===================================
+    // БАШКАРУУ ЖАНА БАШТОО (INIT)
+    // ===================================
+    
+    // Тилди өзгөртүү
+    function updateContent(lang) {
+        // ... (Тилди өзгөртүү логикасы мурункудай) ...
+        const elements = document.querySelectorAll('[data-lang-key]');
+        elements.forEach(el => {
+            const key = el.getAttribute('data-lang-key');
+            if (key === 'pageTitle') {
+                document.title = translations[lang][key];
+            } else {
+                el.textContent = translations[lang][key];
+            }
+        });
+        convertCurrency();
+    }
+    document.getElementById('langSwitcher').addEventListener('change', (e) => {
+        currentLang = e.target.value;
+        updateContent(currentLang);
+        populateCurrencies(); 
+    });
+
+    // Валюталарды алмаштыруу (Swap)
+    document.querySelector('.swap-icon').addEventListener('click', () => {
+        const fromSelect = document.getElementById('fromCurrency');
+        const toSelect = document.getElementById('toCurrency');
+        const temp = fromSelect.value;
+        fromSelect.value = toSelect.value;
+        toSelect.value = temp;
+        convertCurrency();
+    });
+
+    // Киргизүү өзгөргөндө автоматтык түрдө эсептөө
+    document.getElementById('amount').addEventListener('input', convertCurrency);
+    document.getElementById('fromCurrency').addEventListener('change', convertCurrency);
+    document.getElementById('toCurrency').addEventListener('change', convertCurrency);
+
+    // Баракча жүктөлгөндө
+    window.onload = () => {
+        populateCurrencies();
+        const initialLang = document.getElementById('langSwitcher').value; 
+        updateContent(initialLang);
+        fetchRates(); // API'ден курстарды алууну баштоо
+        
+        // 5 мүнөт сайын автоматтык түрдө жаңыртуу (мисалы)
+        setInterval(fetchRates, 300000); // 300000 миллисекунд = 5 мүнөт
+    };
+</script>
